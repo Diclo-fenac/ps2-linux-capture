@@ -1,0 +1,7 @@
+*.raw
+*.wav
+*.mkv
+*.mp4
+*.log
+scratch/
+.DS_Store
