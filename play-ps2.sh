@@ -4,10 +4,9 @@ set -euo pipefail
 # Low-latency PS2 Video + Audio Launcher for MacroSilicon (534d:2109) USB Capture Card
 # Author: Mayank Padhi
 
-ASPECT_43=0
+ASPECT_43=1
 RAW_MODE=0
-CRT_MODE=0
-DEINTERLACE=0
+DEINTERLACE=1
 NO_AUDIO=0
 VOL_GAIN="1.0"
 POS_ARGS=()
@@ -20,32 +19,31 @@ Low-latency V4L2 video and PipeWire DSP audio launcher for PlayStation 2
 hardware connected via a MacroSilicon MS2109 (534d:2109) USB capture device.
 
 Options:
-  --crt             Enable 25% horizontal scanline grid for 1440p/4K monitors
-  --4:3, --43       Enforce 4:3 display aspect ratio (prevents 16:9 stretching)
-  --deinterlace     Apply fast spatial bob deinterlacing (yadif=0)
-  --volume <float>  Audio output gain multiplier (default: 1.0)
-  --no-audio        Disable background audio loopback
-  --raw             Bypass all video and audio DSP filters
-  -h, --help        Show this help message and exit
+  --4:3, --43         Enforce 4:3 display aspect ratio (default)
+  --16:9, --wide      Use 16:9 widescreen aspect ratio (for games with native 16:9 enabled)
+  --no-deinterlace    Disable bwdif deinterlacing (use for native 480p progressive scan titles)
+  --volume <float>    Audio output gain multiplier (default: 1.0)
+  --no-audio          Disable background audio loopback
+  --raw               Bypass all video and audio DSP filters
+  -h, --help          Show this help message and exit
 
 Positional Arguments:
-  RESOLUTION        Capture frame size (default: 1280x720)
-  FPS               Capture frame rate (default: 60)
-  FORMAT            V4L2 pixel format: mjpeg or yuyv422 (default: mjpeg)
+  RESOLUTION          Capture frame size (default: 1280x720)
+  FPS                 Capture frame rate (default: 60)
+  FORMAT              V4L2 pixel format: mjpeg or yuyv422 (default: mjpeg)
 
 Examples:
-  $(basename "$0")                          # Enhanced 720p60 MJPEG + Anti-Hum DSP
-  $(basename "$0") --crt                    # Enhanced 720p60 + CRT scanline overlay
-  $(basename "$0") --4:3 --crt              # 4:3 pillarboxed with CRT scanlines
-  $(basename "$0") 720x480 60 yuyv422       # Raw uncompressed YUYV at native 480p60
+  $(basename "$0")                          # Enhanced 4:3 + bwdif deinterlace + Anti-Hum Audio
+  $(basename "$0") --16:9                   # 16:9 widescreen mode
+  $(basename "$0") 720x480 60 yuyv422       # Raw uncompressed YUYV at native 480p
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --4:3|--43) ASPECT_43=1; shift ;;
-        --crt) CRT_MODE=1; shift ;;
-        --deinterlace) DEINTERLACE=1; shift ;;
+        --16:9|--wide) ASPECT_43=0; shift ;;
+        --no-deinterlace) DEINTERLACE=0; shift ;;
         --no-audio) NO_AUDIO=1; shift ;;
         --volume) VOL_GAIN="${2:-1.0}"; shift 2 ;;
         --raw) RAW_MODE=1; shift ;;
@@ -135,14 +133,11 @@ fi
 
 # 4. Construct zero-latency spatial video filter chain
 VF_CHAIN="format=yuv420p"
-if [[ "$DEINTERLACE" -eq 1 ]]; then
-    VF_CHAIN="${VF_CHAIN},yadif=0:-1:0"
-fi
 if [[ "$RAW_MODE" -eq 0 ]]; then
-    VF_CHAIN="${VF_CHAIN},hqdn3d=1.5:2.5:0.0:0.0,colorlevels=rimin=0.055:gimin=0.055:bimin=0.055:rimax=0.96:gimax=0.96:bimax=0.96,eq=contrast=1.08:saturation=1.12,cas=0.8,unsharp=3:3:0.5:3:3:0.0"
-fi
-if [[ "$CRT_MODE" -eq 1 ]]; then
-    VF_CHAIN="${VF_CHAIN},drawgrid=w=0:h=2:t=1:c=black@0.25"
+    if [[ "$DEINTERLACE" -eq 1 ]]; then
+        VF_CHAIN="${VF_CHAIN},bwdif=mode=0:parity=-1:deint=0"
+    fi
+    VF_CHAIN="${VF_CHAIN},hqdn3d=1.5:2.5:0.0:0.0,colorlevels=rimin=0.015:gimin=0.015:bimin=0.015:rimax=0.98:gimax=0.98:bimax=0.98,eq=gamma=1.12:contrast=1.04:saturation=1.14,cas=0.35"
 fi
 if [[ "$ASPECT_43" -eq 1 ]]; then
     VF_CHAIN="${VF_CHAIN},setdar=4/3"
